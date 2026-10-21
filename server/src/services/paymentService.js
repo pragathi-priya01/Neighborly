@@ -36,44 +36,40 @@ export class PaymentService {
     const amountInPaise = Math.round(amountInINR * 100);
 
     const rzp = getRazorpayInstance();
-    let rzpOrder;
+    if (!rzp) {
+      logger.error('Razorpay SDK is not initialized. Please verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
+      throw ApiError.badRequest('Payment gateway is not configured properly.');
+    }
 
+    let rzpOrder;
     try {
-      if (
-        rzp &&
-        env.RAZORPAY_KEY_ID &&
-        !env.RAZORPAY_KEY_ID.includes('placeholder')
-      ) {
-        rzpOrder = await rzp.orders.create({
-          amount: amountInPaise,
-          currency: 'INR',
-          receipt: `rcpt_bk_${booking._id.toString().substring(0, 10)}`,
-          notes: {
-            bookingId: booking._id.toString(),
-            requesterId: residentUserId.toString(),
-          },
-        });
-      } else {
-        // Safe local test-mode mock order for dev when API keys are placeholder
-        logger.info('Using local Test Mode order generator (placeholder credentials active)');
-        const testOrderId = `order_test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        rzpOrder = {
-          id: testOrderId,
-          amount: amountInPaise,
-          currency: 'INR',
-          status: 'created',
-        };
-      }
-    } catch (err) {
-      logger.error({ err: err.message }, 'Razorpay Order Creation API error');
-      // If Razorpay API fails with auth error in test mode, fallback to dev test order
-      const testOrderId = `order_test_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      rzpOrder = {
-        id: testOrderId,
+      rzpOrder = await rzp.orders.create({
         amount: amountInPaise,
         currency: 'INR',
-        status: 'created',
-      };
+        receipt: `rcpt_bk_${booking._id.toString().substring(0, 10)}`,
+        notes: {
+          bookingId: booking._id.toString(),
+          requesterId: residentUserId.toString(),
+        },
+      });
+    } catch (err) {
+      console.error('Razorpay order creation failed:', {
+        message: err.message,
+        statusCode: err.statusCode,
+        code: err.error?.code,
+        description: err.error?.description,
+        reason: err.error?.reason,
+        field: err.error?.field,
+      });
+
+      const errorMsg =
+        err.error?.description ||
+        err.message ||
+        'Payment gateway order creation failed';
+
+      throw ApiError.badRequest(
+        `Failed to create Razorpay order: ${errorMsg}`
+      );
     }
 
     // Persist Payment record in database
@@ -118,6 +114,16 @@ export class PaymentService {
       throw ApiError.forbidden('Unauthorized payment verification attempt');
     }
 
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      throw ApiError.badRequest('Missing required payment verification parameters (order ID, payment ID, signature)');
+    }
+
+    // Mock payment verification cannot mark a booking as paid in the deployed application
+    if (razorpayOrderId.startsWith('order_test_')) {
+      logger.warn({ razorpayOrderId, residentUserId }, 'Mock payment verification rejected');
+      throw ApiError.badRequest('Mock payments are not supported. Real Razorpay verification is required.');
+    }
+
     const payment = await Payment.findOne({
       booking: booking._id,
       razorpayOrderId,
@@ -132,13 +138,7 @@ export class PaymentService {
     }
 
     // Cryptographic signature check
-    let isValid = false;
-    if (razorpayOrderId.startsWith('order_test_')) {
-      // Local test simulation mode verification
-      isValid = true;
-    } else {
-      isValid = verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
-    }
+    const isValid = verifyRazorpaySignature(razorpayOrderId, razorpayPaymentId, razorpaySignature);
 
     if (!isValid) {
       payment.status = 'FAILED';
@@ -194,13 +194,20 @@ export class PaymentService {
    * 3. Handle Razorpay Webhooks (Idempotent)
    */
   static async handleWebhook(rawBody, signature, payload) {
-    // If webhook secret configured, verify signature
-    if (env.RAZORPAY_WEBHOOK_SECRET && !env.RAZORPAY_WEBHOOK_SECRET.includes('placeholder')) {
-      const isValid = verifyWebhookSignature(rawBody, signature);
-      if (!isValid) {
-        logger.warn('Razorpay webhook signature verification failed');
-        throw ApiError.badRequest('Invalid webhook signature');
-      }
+    if (!signature) {
+      logger.warn('Razorpay webhook called without X-Razorpay-Signature header');
+      throw ApiError.badRequest('Missing X-Razorpay-Signature header');
+    }
+
+    if (!env.RAZORPAY_WEBHOOK_SECRET) {
+      logger.error('Razorpay webhook received but RAZORPAY_WEBHOOK_SECRET is not configured on server');
+      throw ApiError.internal('Webhook secret not configured on server');
+    }
+
+    const isValid = verifyWebhookSignature(rawBody, signature);
+    if (!isValid) {
+      logger.warn('Razorpay webhook signature verification failed');
+      throw ApiError.badRequest('Invalid webhook signature');
     }
 
     const event = payload?.event;

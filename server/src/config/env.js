@@ -16,10 +16,10 @@ export const env = {
   JWT_SECRET: process.env.JWT_SECRET || 'dev_secret_neighbourly_key_fallback_never_in_production',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   
-  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholder_key_id',
-  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || 'placeholder_secret_key',
-  RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET || 'placeholder_webhook_secret',
-  RAZORPAY_MODE: process.env.RAZORPAY_MODE || 'test',
+  RAZORPAY_KEY_ID: (process.env.RAZORPAY_KEY_ID || '').trim(),
+  RAZORPAY_KEY_SECRET: (process.env.RAZORPAY_KEY_SECRET || '').trim(),
+  RAZORPAY_WEBHOOK_SECRET: (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
+  RAZORPAY_MODE: (process.env.RAZORPAY_MODE || 'test').trim(),
   
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',

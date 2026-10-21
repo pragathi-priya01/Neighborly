@@ -91,7 +91,7 @@ export const BookingDetailsPage = () => {
 
       // 2. Configure Razorpay Checkout Options
       const options = {
-        key: orderData.keyId || 'rzp_test_placeholder_key_id',
+        key: orderData.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID,
         amount: orderData.amount, // in paise
         currency: orderData.currency || 'INR',
         name: 'Neighbourly Community Services',
@@ -113,7 +113,7 @@ export const BookingDetailsPage = () => {
               bookingId: booking._id,
               razorpayOrderId: response.razorpay_order_id || orderData.orderId,
               razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature || 'test_signature_valid',
+              razorpaySignature: response.razorpay_signature,
             });
 
             toast.success('Payment verified! Booking is now confirmed.');
@@ -129,7 +129,7 @@ export const BookingDetailsPage = () => {
         },
       };
 
-      // 3. Launch Razorpay modal if SDK loaded, or simulate sandbox approval
+      // 3. Launch Razorpay modal if SDK loaded
       if (typeof window.Razorpay === 'function') {
         const rzp = new window.Razorpay(options);
         rzp.on('payment.failed', function (response) {
@@ -137,16 +137,7 @@ export const BookingDetailsPage = () => {
         });
         rzp.open();
       } else {
-        // Fallback for offline / blocked script in dev sandbox: simulate instant test authorization
-        const simulatedPaymentId = `pay_test_${Date.now()}`;
-        await api.post('/payments/verify', {
-          bookingId: booking._id,
-          razorpayOrderId: orderData.orderId,
-          razorpayPaymentId: simulatedPaymentId,
-          razorpaySignature: 'test_signature_valid',
-        });
-        toast.success('Payment verified in Test Mode! Booking confirmed.');
-        fetchBooking();
+        toast.error('Razorpay Checkout failed to load. Please disable ad-blockers or refresh the page.');
       }
     } catch (err) {
       toast.error(err.message || 'Failed to initialize payment');
